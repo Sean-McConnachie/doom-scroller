@@ -6,9 +6,10 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import StaleElementReferenceException, TimeoutException
+from selenium.common.exceptions import StaleElementReferenceException, TimeoutException, JavascriptException
 import time
 from pynput import keyboard
+import base64
 
 app_state = {
     "effect_index": 0,
@@ -64,6 +65,8 @@ def setup_selenium():
     options = webdriver.ChromeOptions()
     options.add_argument("--disable-notifications")
     options.add_argument("--mute-audio")
+    # This flag is necessary to bypass the CORS policy that prevents canvas data extraction
+    options.add_argument("--disable-web-security")
 
     try:
         driver = webdriver.Chrome(options=options)
@@ -103,6 +106,54 @@ def find_video_element(driver):
         print("Could not find the video element. The page structure may have changed.")
         print("Please ensure a live video is actively playing.")
         return None
+
+def get_frame_via_canvas(driver):
+    js_script = """
+        const video = document.querySelector('video');
+        if (!video) { return null; }
+
+        // Set crossOrigin to 'anonymous' to prevent canvas tainting from cross-domain video feeds.
+        if (video.crossOrigin !== 'anonymous') {
+            video.crossOrigin = 'anonymous';
+        }
+
+        var canvas = document.getElementById('__gemini_canvas');
+        if (!canvas) {
+            canvas = document.createElement('canvas');
+            canvas.id = '__gemini_canvas';
+            canvas.style.display = 'none';
+            document.body.appendChild(canvas);
+        }
+
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+        // Use JPEG for performance. 0.8 is a good quality/size balance.
+        return canvas.toDataURL('image/jpeg', 0.8);
+    """
+    try:
+        data_url = driver.execute_script(js_script)
+        if data_url is None:
+            return None
+        
+        # Strip the header and decode the base64 string
+        header, encoded = data_url.split(",", 1)
+        decoded_data = base64.b64decode(encoded)
+        
+        # Convert to a numpy array for OpenCV
+        np_arr = np.frombuffer(decoded_data, np.uint8)
+        frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
+        return frame
+    except JavascriptException as e:
+        # Avoid spamming the console with the same error.
+        if "Tainted canvases" not in str(e):
+             print(f"JavaScript error while capturing frame: {e}")
+        return None
+    except Exception as e:
+        print(f"Error processing canvas frame: {e}")
+        return None
     
 def find_next_prev_btns(driver):
     try:
@@ -115,6 +166,7 @@ def find_next_prev_btns(driver):
     except TimeoutException:
         print("Could not find navigation buttons.")
         return None
+
 
 def main():
     driver = setup_selenium()
@@ -137,7 +189,6 @@ def main():
             elif key.char == 'q':
                 quit_app()
         except AttributeError:
-            # This handles special keys that don't have a 'char' attribute
             pass
 
     listener = keyboard.Listener(on_press=on_press)
@@ -148,42 +199,35 @@ def main():
 
     while app_state["running"]:
         try:
-            if app_state["video_element"] is None:
-                app_state["video_element"] = find_video_element(driver)
-                if app_state["video_element"] is None:
-                    time.sleep(2)
-                    continue
-            
+            # Find navigation buttons if they are missing
             if app_state["next_btn"] is None or app_state["prev_btn"] is None:
                 find_next_prev_btns(driver)
-                if app_state["next_btn"] is None or app_state["prev_btn"] is None:
-                    time.sleep(2)
-                    continue
 
-            # screenshot = app_state["video_element"].screenshot_as_png
+            frame = get_frame_via_canvas(driver)
 
-            # np_arr = np.frombuffer(screenshot, np.uint8)
-            # frame = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
-
-            # if frame is not None:
-            #     active_effect_func = app_state["effects"][app_state["effect_index"]]
-            #     processed_frame = active_effect_func(frame)
+            if frame is not None:
+                active_effect_func = app_state["effects"][app_state["effect_index"]]
+                processed_frame = active_effect_func(frame)
                 
-            #     effect_name = app_state["effect_names"][app_state["effect_index"]]
-            #     cv2.putText(processed_frame, f"Effect: {effect_name}", (10, 30),
-            #                 cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2, cv2.LINE_AA)
+                effect_name = app_state["effect_names"][app_state["effect_index"]]
+                cv2.putText(processed_frame, f"Effect: {effect_name}", (10, 30),
+                            cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2, cv2.LINE_AA)
 
-            #     cv2.imshow("TikTok Live Feed", processed_frame)
+                cv2.imshow("TikTok Live Feed", processed_frame)
+            else:
+                # If no frame, wait a moment before trying again
+                time.sleep(0.1)
             
             if cv2.waitKey(1) & 0xFF == ord('q'):
                 quit_app()
 
         except StaleElementReferenceException:
-            print("Page changed. Re-finding video element...")
-            app_state["video_element"] = None
+            print("Page changed. Re-finding navigation buttons...")
+            app_state["next_btn"] = None
+            app_state["prev_btn"] = None
             time.sleep(0.5)
         except Exception as e:
-            print(f"An unexpected error occurred: {e}")
+            print(f"An unexpected error occurred in the main loop: {e}")
             try:
                 if not driver.window_handles:
                     print("Browser window was closed.")
