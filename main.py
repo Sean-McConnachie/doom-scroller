@@ -4,12 +4,18 @@ from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import StaleElementReferenceException, TimeoutException, JavascriptException
+from selenium.common.exceptions import StaleElementReferenceException, TimeoutException
 import time
 from pynput import keyboard
 import base64
 from effects import * # Import all effect classes
 import math
+import threading
+import logging
+
+# --- Web Server Imports ---
+from flask import Flask, render_template
+from flask_socketio import SocketIO
 
 # --- Constants ---
 OUTPUT_WIDTH = 1920
@@ -36,6 +42,18 @@ app_state = {
     "prev_btn": None,
     "listener": None
 }
+
+# --- Flask and SocketIO Setup ---
+app = Flask(__name__)
+socketio = SocketIO(app)
+# Suppress noisy server logging
+log = logging.getLogger('werkzeug')
+log.setLevel(logging.ERROR)
+
+@app.route('/')
+def index():
+    """Serves the remote control webpage."""
+    return render_template('index.html')
 
 def tile_frame_to_canvas(frame, target_width, target_height):
     """
@@ -123,7 +141,6 @@ def get_frame_via_canvas(driver):
     js_script = """
         const video = document.querySelector('video');
         if (!video || video.readyState < 2) { return null; }
-        if (video.crossOrigin !== 'anonymous') { video.crossOrigin = 'anonymous'; }
         var canvas = document.getElementById('__gemini_canvas');
         if (!canvas) {
             canvas = document.createElement('canvas');
@@ -162,6 +179,39 @@ def find_next_prev_btns(driver):
 def main():
     driver = setup_selenium()
     if not driver: return
+    
+    # --- SocketIO Event Handlers ---
+    @socketio.on('control_event')
+    def handle_control_event(data):
+        """Handles commands received from the web client."""
+        command = data.get('command')
+        if not command: return
+        
+        print(f"Received command from web: {command}")
+        
+        if command == 'next_video':
+            next_video(driver)
+        elif command == 'prev_video':
+            prev_video(driver)
+        elif command == 'next_effect':
+            next_effect()
+        elif command == 'prev_effect':
+            prev_effect()
+
+    # --- Start Web Server in a separate thread ---
+    def run_web_server():
+        # Using eventlet is recommended. host='0.0.0.0' makes it accessible on your local network.
+        socketio.run(app, host='0.0.0.0', port=5000)
+
+    server_thread = threading.Thread(target=run_web_server)
+    server_thread.daemon = True # Allows main app to exit even if server thread is running
+    server_thread.start()
+    print("\n" + "="*50)
+    print("✅ Web controller is running!")
+    print("   Open a browser on your phone/computer and go to:")
+    print("   http://<YOUR-COMPUTER-IP-ADDRESS>:5000")
+    print("="*50 + "\n")
+
 
     def on_press(key):
         if not app_state["running"]: return False 
@@ -183,8 +233,10 @@ def main():
     listener.start()
     app_state["listener"] = listener
 
-    cv2.namedWindow("TikTok Live Feed", cv2.WINDOW_NORMAL)
-    cv2.resizeWindow("TikTok Live Feed", OUTPUT_WIDTH // 2, OUTPUT_HEIGHT // 2)
+    window_name = "TikTok Live Feed"
+    cv2.namedWindow(window_name, cv2.WND_PROP_FULLSCREEN)
+    cv2.setWindowProperty(window_name, cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
+
 
     while app_state["running"]:
         try:
@@ -199,9 +251,9 @@ def main():
                 active_effect = app_state["effects"][app_state["effect_index"]]
                 processed_frame = active_effect.apply(tiled_frame.copy())
                 
-                effect_name = active_effect.name
-                cv2.putText(processed_frame, f"Effect: {effect_name}", (20, 50),
-                            cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0, 255, 0), 3, cv2.LINE_AA)
+                # effect_name = active_effect.name
+                # cv2.putText(processed_frame, f"Effect: {effect_name}", (20, 50),
+                #             cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0, 255, 0), 3, cv2.LINE_AA)
 
                 cv2.imshow("TikTok Live Feed", processed_frame)
             else:
@@ -227,4 +279,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Controller</title>
+    <style>
+        body {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            grid-template-rows: 1fr 1fr;
+            height: 100dvh; /* Use dynamic viewport height for mobile */
+            width: 100vw;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #000;
+        }
+
+        .btn {
+            border: none;
+            color: rgba(255, 255, 255, 0.9);
+            font-family: 'Segoe UI Symbol', sans-serif;
+            font-size: 25vmin;
+            cursor: pointer;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            transition: filter 0.1s ease-out;
+            user-select: none;
+            -webkit-tap-highlight-color: transparent;
+            text-shadow: 0 0 20px rgba(0,0,0,0.5);
+            touch-action: manipulation;
+        }
+
+        .btn:active {
+            filter: brightness(1.3) saturate(1.2);
+            transform: scale(1.02);
+        }
+
+        /* --- 2-Column Vertical Layout --- */
+        /* Column 1: Up/Down */
+        #up {
+            grid-column: 1 / 2;
+            grid-row: 1 / 2;
+            background: linear-gradient(135deg, #ff8c00, #ff0080);
+        }
+        #down {
+            grid-column: 1 / 2;
+            grid-row: 2 / 3;
+            background: linear-gradient(-45deg, #8a2be2, #4b0082);
+        }
+
+        /* Column 2: Left/Right */
+        #left {
+            grid-column: 2 / 3;
+            grid-row: 1 / 2;
+            background: linear-gradient(45deg, #00f2ea, #007bff);
+        }
+        #right {
+            grid-column: 2 / 3;
+            grid-row: 2 / 3;
+            background: linear-gradient(-135deg, #adff2f, #32cd32);
+        }
+    </style>
+</head>
+<body>
+    <button class="btn" id="up" aria-label="Next Effect">▲</button>
+    <button class="btn" id="right" aria-label="Next Video">►</button>
+    <button class="btn" id="left" aria-label="Previous Video">◄</button>
+    <button class="btn" id="down" aria-label="Previous Effect">▼</button>
+
+    <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const socket = io();
+
+            const buttons = {
+                'up': 'next_effect',
+                'down': 'prev_effect',
+                'left': 'prev_video',
+                'right': 'next_video'
+            };
+
+            for (const [id, command] of Object.entries(buttons)) {
+                const button = document.getElementById(id);
+                if (button) {
+                    button.addEventListener('pointerdown', (e) => {
+                        e.preventDefault();
+                        socket.emit('control_event', { command: command });
+                    });
+                }
+            }
+        });
+    </script>
+</body>
+</html>

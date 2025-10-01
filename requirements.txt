@@ -2,3 +2,6 @@ opencv-python
 selenium
 numpy
 pynput
+Flask
+Flask-SocketIO
+eventlet
