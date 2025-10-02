@@ -1,6 +1,6 @@
 import cv2
 import numpy as np
-from selenium import webdriver
+import undetected_chromedriver as uc # Changed from selenium
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
@@ -110,14 +110,16 @@ def quit_app():
 
 # --- Selenium and Frame Capture Functions ---
 def setup_selenium():
-    print("Setting up Selenium WebDriver...")
-    options = webdriver.ChromeOptions()
+    """Initializes and returns an undetected_chromedriver instance."""
+    print("Setting up undetected-chromedriver...")
+    options = uc.ChromeOptions()
     options.add_argument("--disable-notifications")
     options.add_argument("--mute-audio")
     options.add_argument("--disable-web-security")
 
     try:
-        driver = webdriver.Chrome(options=options)
+        # Use undetected_chromedriver
+        driver = uc.Chrome(options=options, use_subprocess=True)
     except Exception as e:
         print(f"\n{'='*60}\nERROR: Could not start Selenium.\n{e}\n{'='*60}")
         return None

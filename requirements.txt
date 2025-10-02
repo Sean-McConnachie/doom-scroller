@@ -5,3 +5,4 @@ pynput
 Flask
 Flask-SocketIO
 eventlet
+undetected-chromedriver
